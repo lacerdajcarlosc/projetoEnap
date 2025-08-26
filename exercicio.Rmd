@@ -1,0 +1,152 @@
+---
+title: "Projeto de Conclusao de Curso"
+author: "Carlos Lacerda"
+date: "2025-08-12"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+```
+
+# =======================
+# 1 importando os dados
+# =======================
+
+```{r}
+install.packages("tidyverse")
+install.packages("data.table")
+library (data.table)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+dados <- fread(
+  "despesas_municipios_total.csv",
+  sep=";",
+  dec = ",",
+  encoding = "UTF-8"
+  )
+
+dados$VALUE <- as.numeric(gsub(",",".",gsub("\\.","",dados$VALUE)))
+
+# Conferindo a estrutura
+str(dados)
+head(dados)
+
+
+```
+# =======================
+# 2 - Percentual da funcao no municipio
+# =======================
+```{r}
+dados <- dados %>%
+  group_by(NO_ENTE) %>%
+  mutate(percentual_despesa_funcao = (VALUE / sum(VALUE, na.rm = TRUE))*100) %>%
+  ungroup()
+head(dados)
+
+```
+# =======================
+# 3 - Municipio > ou < que a media (populacao)
+# =======================
+
+```{r}
+media_populacao <- mean(dados$QT_HABITANTE, na.rm =TRUE)
+
+dados <- dados %>%
+  mutate(grupo_pop = ifelse(QT_HABITANTE > media_populacao,"Maior que a media","Menor que a media"))
+head(dados)
+
+```
+# =======================
+# 4 - Media e margem de erro do percentual de despesas (95%)
+# =======================
+```{r}
+media_percentual <- mean(dados$percentual_despesa_funcao,na.rm = TRUE)
+desvio_padrao <- sd(dados$percentual_despesa_funcao, na.rm = TRUE)
+n <- sum(!is.na(dados$percentual_despesa_funcao))
+margem_erro <- qnorm(0.975)*(desvio_padrao/sqrt(n))
+
+cat("Media", media_percentual,"\nMargem de erro(95%):",margem_erro,"\n")
+```
+# =======================
+# 5 - Transporte publico: grandes vs pequenos
+# =======================
+```{r}
+#Filtrar para funcao "Transporte"
+dados_transporte <- dados %>% filter(funcao == "Transporte")
+
+teste_transporte <- t.test(
+  percentual_despesa_funcao ~ grupo_pop,
+  data = dados_transporte,
+  alternative = "greater"
+)
+print(teste_transporte)
+```
+# =======================
+#6.1 - Saude vs Educacao (mesmo municipio)
+# =======================
+```{r}
+dados_saude <- dados %>% filter(funcao == "Saúde")
+dados_educacao <- dados %>% filter (funcao == "Educação")
+
+# Unir por municipio
+dados_pareado <- inner_join(
+  dados_saude %>% select(NO_ENTE, perc_saude = percentual_despesa_funcao),
+  dados_educacao %>% select(NO_ENTE, perc_educacao = percentual_despesa_funcao),
+  by = "NO_ENTE"
+)
+
+teste_saude_educacao <- t.test(
+  dados_pareado$perc_saude,
+  dados_pareado$perc_educacao,
+  paired = TRUE
+)
+print(teste_saude_educacao)
+
+# Grafico
+
+dados_long <- dados_pareado %>%
+  pivot_longer(cols = c(perc_saude, perc_educacao),
+               names_to = "Funcao",
+               values_to = "Percentual")
+
+ggplot(dados_long, aes(x = Funcao, y = Percentual, fill = Funcao)) + 
+  geom_boxplot() +
+  theme_minimal()
+
+               
+
+
+
+
+
+```   
+# =======================
+# 6.1 - Saude grandes vs  pequenos
+# =======================
+```{r}
+teste_saude <- t.test(
+  percentual_despesa_funcao ~ grupo_pop,
+  data = dados %>%filter(funcao == "Saúde")
+)
+print(teste_saude)
+
+```
+# =======================
+# 7 - ANOVA + TUKEY
+# =======================
+```{r}
+anova_model <- aov(percentual_despesa_funcao ~ funcao, data=dados)
+summary(anova_model)
+TukeyHSD(anova_model)
+
+ggplot(dados, aes(x = funcao, y = percentual_despesa_funcao, fill = funcao))+
+  geom_boxplot()+
+  theme_minimal()
+
+
+```
